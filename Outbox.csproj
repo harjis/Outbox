@@ -2,6 +2,10 @@
 
     <PropertyGroup>
         <TargetFramework>net5.0</TargetFramework>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <PackageId>Harjis.Outbox</PackageId>
+        <Authors>Joonas Harjukallio</Authors>
+        <Description>A sample library on Outbox Pattern</Description>
     </PropertyGroup>
 
     <ItemGroup>
