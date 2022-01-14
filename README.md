@@ -73,7 +73,92 @@ public class PostService
 
 # Consumer
 
-TODO Clean up the consumer code and add documentaiton for public api
+```c#
+public class PostsConsumer
+{
+    private readonly string _topic;
+    private readonly IConsumer<string, string> _kafkaConsumer;
+    
+    private readonly ConsumedEventRepository<CommentDbContext, Post> _consumedEventRepository;
+    private readonly PostRepository _postRepository;
+
+    public PostsConsumer(ConsumedEventRepository<CommentDbContext, Post> consumedEventRepository, PostRepository postRepository)
+    {
+        _consumedEventRepository = consumedEventRepository;
+        _postRepository = postRepository;
+        
+        var consumerConfig = new ConsumerConfig
+        {
+            BootstrapServers = "kafka:9092",
+            GroupId = "ConsumerGroupId",
+            AutoOffsetReset = AutoOffsetReset.Earliest,
+            EnableAutoCommit = false
+        };
+        _topic = "Post.events";
+        _kafkaConsumer = new ConsumerBuilder<string, string>(consumerConfig).Build();
+    }
+
+    public void StartConsumerLoop(CancellationToken cancellationToken)
+    {
+        _kafkaConsumer.Subscribe(_topic);
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                var receivedEvent = ProcessOutboxEvent(_kafkaConsumer.Consume(cancellationToken));
+                if (!_consumedEventRepository.HasBeenConsumed(receivedEvent))
+                {
+                    _consumedEventRepository.Add(receivedEvent);
+                    // Do something with the ReceivedEvent
+                }
+                else
+                {
+                    Console.WriteLine(
+                        $"Service received message {receivedEvent.Id} which has already been consumed");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (ConsumeException e)
+            {
+                Console.WriteLine($"Consume error: {e.Error.Reason} was fatal: {e.Error.IsFatal}");
+
+                if (e.Error.IsFatal)
+                {
+                    Console.WriteLine("Fatal error: killing the background process");
+                    // https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#fatal-consumer-errors
+                    break;
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"Unexpected error: {e}");
+                break;
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        _kafkaConsumer.Close();
+        _kafkaConsumer.Dispose();
+    }
+    
+    private ReceivedEvent<Post> ProcessOutboxEvent(ConsumeResult<string, string> consumeResult)
+    {
+        var messageIdBuffer = consumeResult.Message.Headers.GetLastBytes("id");
+        var id = System.Text.Encoding.UTF8.GetString(messageIdBuffer, 0, messageIdBuffer.Length);
+        
+        var eventTypeBuffer = consumeResult.Message.Headers.GetLastBytes("eventType");
+        var type = System.Text.Encoding.UTF8.GetString(eventTypeBuffer, 0, eventTypeBuffer.Length);
+
+        return new ReceivedEvent<Post>(id, type, JsonSerializer.Deserialize<Post>(consumeResult.Message.Value));
+    }
+}
+```
 
 # How to publish:
 
